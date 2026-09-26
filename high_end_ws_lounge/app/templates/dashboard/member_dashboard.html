@@ -1,0 +1,728 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard/member_dashboard.css') }}?v=9">
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-wrapper">
+    <div class="dashboard-header">
+        <div>
+            <h1 class="page-title">Member Dashboard</h1>
+            <h2 id="welcomeText" class="welcome-text" aria-live="polite">Welcome Back, <span id="userName">{{ current_user.name }}</span>!</h2>
+        </div>
+        <div id="dashboardClock" class="dashboard-clock" role="timer" aria-label="Current Time">00:00:00</div>
+    </div>
+
+    {% if membership_notifications %}
+    <div class="dashboard-notifications">
+
+        <div class="dashboard-notifications-header"
+            onclick="toggleMembershipNotifications()">
+
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="dashboard-notification-icon">
+                    <i class="fas fa-bell"></i>
+                </div>
+
+                <div>
+                    <h3>Notifications</h3>
+                    <p>Recent membership updates</p>
+                </div>
+            </div>
+
+            <button
+                type="button"
+                class="notification-toggle-btn"
+                onclick="event.stopPropagation(); toggleMembershipNotifications();"
+                aria-label="Toggle notifications">
+                <i class="fas fa-chevron-up" id="notification-toggle-icon"></i>
+            </button>
+
+        </div>
+
+        <div id="membership-notification-list">
+
+            {% for notification in membership_notifications %}
+            <div class="dashboard-notification-item">
+
+                <div class="dashboard-notification-check">
+                    <i class="fas fa-check"></i>
+                </div>
+
+                <div class="dashboard-notification-content">
+
+                    <div class="dashboard-notification-top">
+                        {% if notification.renewed_at and not notification.renewal_notification_seen %}
+                            <strong>Membership Renewed</strong>
+                        {% else %}
+                            <strong>Membership Approved</strong>
+                        {% endif %}
+
+                        <button
+                            type="button"
+                            class="notification-close-btn"
+                            onclick="closeMembershipNotification(this)"
+                            aria-label="Close notification">
+                            &times;
+                        </button>
+                    </div>
+
+                    {% if notification.renewed_at and not notification.renewal_notification_seen %}
+                        <p>
+                            Your <strong>{{ notification.plan_name }}</strong> membership has been renewed.
+                            Your new session is ready and will start once the staff checks you in.
+                        </p>
+                    {% else %}
+                        <p>
+                            Your <strong>{{ notification.plan_name }}</strong> plan has been approved.
+                            Your session will start once the staff checks you in.
+                        </p>
+                    {% endif %}
+
+                    {% if notification.renewed_at and not notification.renewal_notification_seen %}
+                        <small>
+                            {{ notification.renewed_at.strftime('%b %d, %Y %I:%M %p') }}
+                        </small>
+                    {% elif notification.approved_at %}
+                        <small>
+                            {{ notification.approved_at.strftime('%b %d, %Y %I:%M %p') }}
+                        </small>
+                    {% endif %}
+
+                </div>
+
+            </div>
+            {% endfor %}
+
+        </div>
+
+    </div>
+    {% endif %}
+
+    <!-- Stats Grid -->
+    <div class="member-stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon"><i class="far fa-calendar-check" aria-hidden="true"></i></div>
+            <div class="stat-number">{{ reservations|length|default(0) }}</div>
+            <div class="stat-label">Total Reservations</div>
+        </div>
+
+
+        {% if remaining_days and remaining_days != 'N/A' %}
+        <div class="stat-card">
+            <div class="stat-icon"><i class="fas fa-star" aria-hidden="true"></i></div>
+            <div class="stat-number">{{ remaining_days }}</div>
+            <div class="stat-label">Plan Days Left</div>
+        </div>
+        {% endif %}
+
+      <div class="stat-card">
+            <div class="stat-icon"><i class="far fa-clock" aria-hidden="true"></i></div>
+            <div class="stat-number">
+                {% if total_solo_hours is defined and total_solo_hours is not none %}
+                    {{ total_solo_hours|round(1) }}hrs
+                {% else %}
+                    0hrs
+                {% endif %}
+            </div>
+            <div class="stat-label">Total Solo Hours</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-icon"><i class="fas fa-wallet" aria-hidden="true"></i></div>
+            <div class="stat-number">{{ total_solo_plans|default(0) }}</div>
+            <div class="stat-label">Solo Plans</div>
+        </div>
+    </div>
+
+    <!-- Membership Status Card -->
+    <div class="membership-status-card reservation-status-card" id="activeReservationCard"
+        data-reservation-id="{{ active_reservation.id if active_reservation else '' }}"
+        data-start-time="{{ active_reservation.start_time.isoformat() if active_reservation and active_reservation.start_time else '' }}"
+        data-end-time="{{ active_reservation.end_time.isoformat() if active_reservation and active_reservation.end_time else '' }}"
+        data-is-open-time="{{ 'true' if active_reservation and active_reservation.is_open_time else 'false' }}"
+        data-status="{{ active_reservation.status if active_reservation else '' }}"
+        data-is-paused="{{ 'true' if is_reservation_paused else 'false' }}">
+        <div class="membership-header">
+            <div>
+                <h3 class="membership-title">
+                    {% if active_reservation and active_reservation.room %}
+                        {{ active_reservation.room.name }} Reservation
+                    {% elif active_reservation %}
+                        Reservation
+                    {% else %}
+                        No Active Reservation
+                    {% endif %}
+                </h3>
+                <p class="membership-plan">
+                    {{ 'Fixed Time Session' if active_reservation and active_reservation.end_time else ('Open Time Session' if active_reservation else 'No Active Booking') }}
+                </p>
+            </div>
+            <span class="membership-badge {% if is_reservation_paused %}badge bg-warning text-dark{% elif active_reservation and (active_reservation.status|lower == 'in_progress' or (active_reservation.check_in_time is defined and active_reservation.check_in_time is not none)) %}badge bg-success{% elif active_reservation %}badge bg-secondary{% else %}badge bg-secondary{% endif %}" id="reservationStatusBadge">
+                {% if is_reservation_paused %}
+                    Session Paused
+                {% elif active_reservation and (active_reservation.status|lower == 'in_progress' or (active_reservation.check_in_time is defined and active_reservation.check_in_time is not none)) %}
+                    ACTIVE SESSION
+                {% elif active_reservation %}
+                    UPCOMING
+                {% else %}
+                    NO ACTIVE RESERVATION
+                {% endif %}
+            </span>
+        </div>
+        <div class="membership-details-grid">
+            <div class="detail-item">
+                <label id="reservationStartLabel">{{ 'Started On' if active_reservation and active_reservation.status|lower == 'in_progress' else 'Scheduled' }}</label>
+                <div class="detail-value" id="reservationStartValue">
+                    {{ active_reservation.start_time.strftime('%B %d, %Y %I:%M %p') if active_reservation and active_reservation.start_time else '---' }}
+                </div>
+            </div>
+            <div class="detail-item">
+                <label>Expires On</label>
+                <div class="detail-value" id="reservationEndValue">{{ active_reservation.end_time.strftime('%B %d, %Y %I:%M %p') if active_reservation and active_reservation.end_time else ('Open Time (No Fixed End)' if active_reservation else '---') }}</div>
+            </div>
+            <div class="detail-item">
+                <label id="reservationTimerLabel">{{ 'COUNTDOWN' if active_reservation and active_reservation.end_time else 'TIME USED' }}</label>
+                <div class="detail-value" id="reservationTimerValue">00:00:00</div>
+            </div>
+            <div class="detail-item">
+                <label>Remaining / Total</label>
+                <div class="detail-value" id="reservationHoursValue">{{ '00:00:00' if active_reservation and active_reservation.status|lower == 'in_progress' else '---' }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="membership-status-card" id="membershipCard">
+        <div class="membership-header">
+            <div>
+                <h3 class="membership-title">✓ Official Member</h3>
+                <p class="membership-plan">
+                    {% if active_plan and active_plan.plan_name %}
+                        {{ active_plan.plan_name }}
+                    {% else %}
+                        No Active Membership
+                    {% endif %}
+                </p>
+            </div>
+            
+            <span class="membership-badge {% if active_plan %}active{% else %}secondary{% endif %}">
+                {% if active_plan %}ACTIVE{% else %}NOT ACTIVE{% endif %}
+            </span>
+        </div>
+
+        <div class="membership-details-grid">
+            <div class="detail-item">
+                <label>Started On</label>
+                <div class="detail-value" id="startedOnDisplay">
+                    {% if active_plan and attendance_logs and attendance_logs[0] and attendance_logs[0].check_in_time %}
+                        {{ attendance_logs[0].check_in_time.strftime('%B %d, %Y %I:%M %p') }}
+                    
+                    {% else %}
+                        ---
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="detail-item">
+                <label>Expires On</label>
+                <div class="detail-value" id="expiresOnDisplay">
+                    {% if active_plan and active_plan.expiry_date %}
+                        {{ active_plan.expiry_date.strftime('%B %d, %Y %I:%M %p') }}
+                    {% else %}
+                        ---
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="detail-item">
+                <label>Countdown</label>
+                <div class="detail-value" 
+                    id="membershipExpiryCountdown" 
+                    data-expiry="{{ active_plan.expiry_date.isoformat() if active_plan and active_plan.expiry_date else '' }}" 
+                    data-membership-id="{{ membership.id if membership else '' }}"
+                    data-is-checked-in="{{ 'true' if active_plan and active_plan.is_paused is defined and not active_plan.is_paused else 'false' }}"
+                    data-is-paused="{{ 'true' if active_plan and active_plan.is_paused else 'false' }}">
+                    {% if active_plan %}00:00:00{% else %}---{% endif %}
+                </div>
+            </div>
+            
+            <div class="detail-item">
+                <label>REMAINING HOURS</label>
+                <div class="detail-value" id="remainingHours">
+                    <span class="hours-value">
+                        {% if active_plan and membership and membership.hours_left is not none %}
+                            {% set total_sec = (membership.hours_left * 3600)|round|int %}
+                            {% set h = total_sec // 3600 %}
+                            {% set m = (total_sec % 3600) // 60 %}
+                            {% set s = total_sec % 60 %}
+                            {{ h }}h {{ m }}m {{ s }}s
+                        {% else %}
+                            ---
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+
+            <div class="detail-item">
+                <label>TOTAL HOURS</label>
+                <div class="detail-value" id="totalHours">
+                    <span class="hours-value">
+                        {% if active_plan and membership and membership.total_hours is not none %}
+                            {% set total_sec = (membership.total_hours * 3600)|round|int %}
+                            {% set h = total_sec // 3600 %}
+                            {% set m = (total_sec % 3600) // 60 %}
+                            {% set s = total_sec % 60 %}
+                            {{ h }}h {{ m }}m {{ s }}s
+                        {% else %}
+                            ---
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+
+            <div class="detail-item">
+                <label>Status</label>
+                <div class="detail-value">
+                    {% if active_plan and (is_session_paused or (active_log and active_log.is_paused)) %}
+                        <span class="badge bg-warning text-dark">⏸ Session Paused</span>
+                    {% elif active_plan %}
+                        <span class="badge bg-success">✓ Checked In</span>
+                    {% else %}
+                        <span class="badge bg-secondary">NOT ACTIVE</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+        {% if membership and membership.is_checked_in %}
+                <div class="session-timer-container"
+                    id="sessionTimerContainer"
+                    data-plan-hours="{{ active_session.plan_hours if active_session and active_session.plan_hours else (membership.hours_left if membership else 0) }}"
+                    data-checkin-time="{{ active_session.start_time.isoformat() if active_session and active_session.start_time else '' }}"
+                    data-paused-at="{{ active_session.paused_at.isoformat() if active_session and active_session.paused_at else '' }}"
+                    data-is-paused="{{ 'true' if active_session and active_session.is_paused else 'false' }}"
+                    data-accumulated-paused="{{ active_session.accumulated_paused_seconds if active_session else 0 }}">
+
+                    <div class="session-info">
+                        <p class="session-label">Current Session Duration</p>
+                        <div class="timer-display" id="sessionTimer">00:00:00</div>
+                    </div>
+                    <div class="session-info">
+                        <p class="session-label">Hours Used So Far</p>
+                        <div class="timer-display hours-spent" id="hoursSpent">
+                            0h 0m
+                        </div>
+                    </div>
+                </div>
+        {% endif %}
+
+        <!-- Attendance Records -->
+<div class="attendance-records-container">
+    <h4 class="attendance-title">📋 Recent Attendance</h4>
+    <div class="attendance-table-wrapper attendance-scroll-panel dashboard-history-scroll">
+        <table class="attendance-table" id="recent-attendance-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Check-In</th>
+                    <th>Check-Out</th>
+                    <th>Hours Used</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="recent-attendance-tbody">
+                {% for log in attendance_logs[:10] %}
+                {% set actual_end_time = log.check_out_time or log.actual_end_time or log.ended_at %}
+                <tr id="attendance-row-{{ log.id }}">
+                    <!-- 1. DATE -->
+                    <td>{{ log.check_in_time.strftime('%b %d, %Y') if log.check_in_time else '-' }}</td>
+                    
+                    <!-- 2. CHECK-IN TIME -->
+                    <td>{{ log.check_in_time.strftime('%I:%M %p') if log.check_in_time else '-' }}</td>
+                    
+                    <!-- 3. CHECK-OUT TIME (Mag-In Progress lang kon wala pa nakacheck-out) -->
+                    <td>
+                        {% if actual_end_time %}
+                            {{ actual_end_time.strftime('%I:%M %p') }}
+                        {% else %}
+                            <span class="badge bg-warning text-dark">In Progress</span>
+                        {% endif %}
+                    </td>
+                    
+                    <!-- 4. HOURS USED (Dash lang muna samtang In Progress) -->
+                    <td>
+                        {% if log.check_out_time and log.hours_deducted is not none %}
+                            {% if log.hours_deducted < 1 %}
+                                <strong>{{ (log.hours_deducted * 60) | round | int }} mins</strong>
+                            {% else %}
+                                <strong>{{ log.hours_deducted | round(2) }} hrs</strong>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="attendance-row-action">
+                        <button type="button" class="attendance-delete-button" data-attendance-id="{{ log.id }}" title="Delete record" aria-label="Delete attendance record" style="border: 0; background: transparent; color: #718096; cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 6px;">&times;</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not attendance_logs %}
+                <tr>
+                    <td colspan="5" class="text-center text-muted py-4" style="font-size: 13px;"><em>No recent attendance history available.</em></td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+    {# Issue #8: Search and Filter Bar #}
+    <div class="dashboard-controls">
+        <div class="search-filter-wrapper">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="reservationSearch" placeholder="Search by room or status..." aria-label="Search reservations">
+            </div>
+            <div class="filter-group">
+                <select id="statusFilter" aria-label="Filter by status">
+                    <option value="all">All Status</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="pending">Pending</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="ended">Ended</option>
+                </select>
+                <button id="exportCSV" class="btn-export" title="Export to CSV"><i class="fas fa-file-csv"></i> Export</button>
+                <button id="btn-clear-all-attendance" class="btn-export attendance-clear-button" type="button">Clear All</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-main-content">
+        <!-- Recent Reservations Section -->
+        <div class="reservations-section">
+            <h4 class="section-title"><i class="fas fa-history"></i> Reservation History</h4>
+            {% if reservations %}
+            <div class="table-wrap dashboard-history-scroll">
+                <table class="modern-table" id="reservationTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Room</th>
+                            <th>Date & Time</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for res in reservations %}
+                        <tr>
+                            <td><strong>#{{ res.customer_id or res.id }}</strong></td>
+                            <td>{{ res.room.name if res.room else 'N/A' }}</td>
+                            <td>{{ res.start_time.strftime('%m/%d %I:%M %p') if res.start_time else '-' }}</td>
+                            <td>
+                                {# Issue #4: Status Badges with accessibility #}
+                                <span class="status-badge 
+                                    {% if res.status|lower == 'confirmed' %}badge-confirmed
+                                    {% elif res.status|lower == 'pending' %}badge-pending
+                                    {% elif res.status|lower == 'cancelled' %}badge-cancelled
+                                    {% elif res.status|lower == 'ended' or res.status|lower == 'checked-out' %}badge-ended
+                                    {% else %}badge-default{% endif %}">
+                                    {{ res.status }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="far fa-calendar-times"></i>
+                <p>No reservations yet. <a href="{{ url_for('main.rooms') }}">Make your first reservation</a></p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Solo Plans Section -->
+        <div class="solo-section">
+            <h4 class="section-title"><i class="fas fa-gem"></i> My Solo Plans</h4>
+            {% if solo_plans %}
+            {# Issue #7: Styled Cards for Solo Plans instead of plain table #}
+            <div class="solo-plans-scroll-container">
+                <div class="solo-plans-grid">
+                    {% for plan in solo_plans %}
+                    <div class="solo-plan-card">
+                        <div class="plan-card-header">
+                            <span class="plan-id">#{{ plan.customer_id or plan.id }}</span>
+                            <span class="status-badge {% if plan.status == 'approved' %}badge-confirmed{% else %}badge-pending{% endif %}">
+                                {{ plan.status.title() }}
+                            </span>
+                        </div>
+                        <div class="plan-card-body">
+                            <h5>{{ plan.plan_name }}</h5>
+                            <p class="expiry"><i class="far fa-calendar-alt"></i> Expires: {{ plan.expiry_date.strftime('%m/%d %Y') if plan.expiry_date else '-' }}</p>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% else %}
+            {# Issue #7: Empty state styling #}
+            <div class="solo-plan-card empty-plan">
+                <div class="plan-card-body">
+                    <p>No solo plans yet.</p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    {# Issue #6 & #10: Accessibility and consistent styling #}
+    <div class="action-buttons">
+        <a href="{{ url_for('main.rooms') }}" class="modern-btn btn-primary-modern" aria-label="Create a new reservation">
+            <i class="fas fa-plus-circle"></i> New Reservation
+        </a>
+        <a href="{{ url_for('main.rooms') }}" class="modern-btn btn-primary-modern" aria-label="View available rooms">
+            <i class="fas fa-door-open"></i> View Rooms
+        </a>
+        <a href="{{ url_for('main.solo_rates') }}" class="modern-btn btn-primary-modern" aria-label="View solo plans">
+            <i class="fas fa-gem"></i> Solo Plans
+        </a>
+        <a href="{{ url_for('main.timelog') }}" class="modern-btn btn-primary-modern" aria-label="View your time logs">
+            <i class="fas fa-history"></i> Timelog
+        </a>
+    </div>
+</div>
+
+<style>
+.dashboard-history-scroll {
+    max-height: 280px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #a0aec0 transparent;
+}
+
+.dashboard-history-scroll::-webkit-scrollbar {
+    width: 7px;
+}
+
+.dashboard-history-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.dashboard-history-scroll::-webkit-scrollbar-thumb {
+    background: #a0aec0;
+    border-radius: 4px;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const card = document.getElementById('activeReservationCard');
+    if (!card) return;
+
+    const title = card.querySelector('.membership-title');
+    const plan = card.querySelector('.membership-plan');
+    const badge = document.getElementById('reservationStatusBadge');
+    const startLabel = document.getElementById('reservationStartLabel');
+    const startValue = document.getElementById('reservationStartValue');
+    const endValue = document.getElementById('reservationEndValue');
+    const timerLabel = document.getElementById('reservationTimerLabel');
+    const timerValue = document.getElementById('reservationTimerValue');
+    const hoursValue = document.getElementById('reservationHoursValue');
+    let timerId = null;
+
+    function formatDuration(totalSeconds) {
+        const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+        return [
+            Math.floor(seconds / 3600),
+            Math.floor((seconds % 3600) / 60),
+            seconds % 60,
+        ].map(value => String(value).padStart(2, '0')).join(':');
+    }
+
+    function formatDateTime(value) {
+        if (!value) return '---';
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? '---' : date.toLocaleString([], {
+            month: 'long', day: 'numeric', year: 'numeric',
+            hour: 'numeric', minute: '2-digit', hour12: true,
+        });
+    }
+
+    function resetCard() {
+        if (timerId) clearInterval(timerId);
+        timerId = null;
+        card.dataset.reservationId = '';
+        card.dataset.startTime = '';
+        card.dataset.endTime = '';
+        card.dataset.isOpenTime = 'false';
+        card.dataset.status = '';
+        card.dataset.isPaused = 'false';
+        title.textContent = 'No Active Reservation';
+        plan.textContent = 'No Active Booking';
+        badge.textContent = 'NO ACTIVE RESERVATION';
+        badge.className = 'membership-badge secondary';
+        startLabel.textContent = 'Scheduled';
+        startValue.textContent = '---';
+        endValue.textContent = '---';
+        timerLabel.textContent = 'TIME USED';
+        timerValue.textContent = '00:00:00';
+        hoursValue.textContent = '---';
+    }
+
+    function renderReservation(data) {
+        card.dataset.reservationId = data.id;
+        card.dataset.startTime = data.start_time || '';
+        card.dataset.endTime = data.end_time || '';
+        card.dataset.isOpenTime = data.is_open_time ? 'true' : 'false';
+        card.dataset.status = data.status || '';
+        card.dataset.isPaused = data.is_paused ? 'true' : 'false';
+
+        const status = String(data.status || '').trim().toLowerCase();
+        const isPaused = data.is_paused === true || status === 'paused';
+        const startMs = Date.parse(data.start_time || '');
+        const active = !isPaused && (
+            status === 'in_progress'
+            || Boolean(data.check_in_time)
+            || (Number.isFinite(startMs) && Date.now() >= startMs && ['confirmed', 'pending', 'checked-in'].includes(status))
+        );
+        const openTime = data.is_open_time || !data.end_time;
+        title.textContent = data.room_name ? `${data.room_name} Reservation` : 'Reservation';
+        plan.textContent = openTime ? 'Open Time Session' : 'Fixed Time Session';
+
+        if (isPaused) {
+            badge.textContent = 'Session Paused';
+            badge.className = 'membership-badge badge bg-warning text-dark';
+            startLabel.textContent = 'Started On';
+            startValue.textContent = formatDateTime(data.start_time);
+            endValue.textContent = data.end_time ? formatDateTime(data.end_time) : (openTime ? 'Open Time (No Fixed End)' : '---');
+            timerLabel.textContent = 'COUNTDOWN';
+            timerValue.textContent = 'PAUSED';
+            hoursValue.textContent = '---';
+            if (timerId) clearInterval(timerId);
+            timerId = null;
+            return;
+        }
+
+        badge.textContent = active ? 'ACTIVE SESSION' : 'UPCOMING';
+        badge.className = `membership-badge ${active ? 'badge bg-success' : 'badge bg-secondary'}`;
+        startLabel.textContent = active ? 'Started On' : 'Scheduled';
+        startValue.textContent = formatDateTime(data.start_time);
+        endValue.textContent = data.end_time ? formatDateTime(data.end_time) : (openTime ? 'Open Time (No Fixed End)' : '---');
+        timerLabel.textContent = openTime ? 'TIME USED' : 'COUNTDOWN';
+        hoursValue.textContent = data.end_time && data.start_time
+            ? `${Math.floor((Date.parse(data.end_time) - Date.parse(data.start_time)) / 3600000)}h 0m 0s`
+            : '---';
+        startTimer();
+    }
+
+    function startTimer() {
+        if (timerId) clearInterval(timerId);
+        const startMs = Date.parse(card.dataset.startTime || '');
+        const endMs = Date.parse(card.dataset.endTime || '');
+        const openTime = card.dataset.isOpenTime === 'true' || !card.dataset.endTime;
+        const status = String(card.dataset.status || '').trim().toLowerCase();
+        if (status === 'paused' || card.dataset.isPaused === 'true') {
+            timerValue.textContent = 'PAUSED';
+            return;
+        }
+        const tick = () => {
+            const now = Date.now();
+            if (!Number.isFinite(startMs) || now < startMs) {
+                timerValue.textContent = '00:00:00';
+                return;
+            }
+            timerValue.textContent = formatDuration(openTime ? (now - startMs) / 1000 : (endMs - now) / 1000);
+        };
+        tick();
+        if (Number.isFinite(startMs)) timerId = setInterval(tick, 1000);
+    }
+
+    function pollReservation() {
+        fetch('/api/user-active-reservation')
+            .then(response => response.json())
+            .then(data => data.has_active ? renderReservation(data) : resetCard())
+            .catch(() => null);
+    }
+
+    if (card.dataset.reservationId) startTimer();
+    setInterval(pollReservation, 3000);
+});
+</script>
+
+<script>
+    function closeMembershipNotification(button) {
+    const notification = button.closest('.dashboard-notification-item');
+
+    if (notification) {
+        notification.style.display = 'none';
+    }
+}
+
+function toggleMembershipNotifications() {
+    const list = document.getElementById('membership-notification-list');
+    const icon = document.getElementById('notification-toggle-icon');
+
+    if (!list || !icon) return;
+
+    if (list.style.display === 'none') {
+        list.style.display = '';
+
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    } else {
+        list.style.display = 'none';
+
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    const badge = document.getElementById('member-dashboard-notif-badge');
+
+    if (!badge || badge.classList.contains('d-none')) {
+        return;
+    }
+
+    fetch('/api/notifications/membership/read', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+                ? {
+                    'X-CSRFToken':
+                        document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                }
+                : {})
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            badge.textContent = '0';
+            badge.classList.add('d-none');
+        }
+    })
+    .catch(error => {
+        console.error('Failed to mark membership notifications as read:', error);
+    });
+});
+</script>
+
+{# Issue #9: Notification/Reminders Toast Container #}
+<div id="notificationContainer" class="notification-container" aria-live="assertive"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/dashboard/member_dashboard.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const countdown = document.getElementById('membershipExpiryCountdown');
+    if (countdown && !countdown.dataset.expiry) {
+        countdown.textContent = '---';
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,21 @@
+# Virtual Environments
+.venv/
+venv/
+**/venv/
+**/.venv/
+
+# Python Cache
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+
+# Sensitive Files & Database
+.env
+**/.env
+*.db
+app.db
+**/app.db
+
+# VS Code settings
+.vscode/

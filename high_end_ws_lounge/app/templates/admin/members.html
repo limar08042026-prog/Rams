@@ -1,0 +1,519 @@
+{% extends "base.html" %}
+
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin/members.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+{% endblock %}
+
+{% block content %}
+<div class="members-main-wrapper">
+    <div class="members-page-header">
+        <h2 class="page-title">All Members</h2>
+        <span class="current-date-display" id="currentDateDisplay">{{ now.strftime('%A, %B %d, %Y') if now else 'Today' }}</span>
+    </div>
+
+  <!-- Tab Navigation -->
+    <div class="members-tabs-container">
+        <div class="tabs-nav" id="membersTabNav">
+
+            <button class="tab-btn {{ 'active' if active_tab == 'requests' else '' }}"
+                    data-tab="requests">
+                <span>Membership Requests</span>
+
+                {% if pending_solo_plans_count > 0 %}
+                    <span id="membership-request-tab-badge"
+                        class="badge rounded-pill bg-danger ms-2">
+                        {{ pending_solo_plans_count }}
+                    </span>
+                {% else %}
+                    <span id="membership-request-tab-badge"
+                        class="badge rounded-pill bg-danger ms-2 d-none">
+                        0
+                    </span>
+                {% endif %}
+            </button>
+
+            <button class="tab-btn {{ 'active' if active_tab == 'list' or not active_tab else '' }}"
+                    data-tab="list">
+                <span>Member List</span>
+
+                {% if new_members_count > 0 %}
+                    <span id="member-list-tab-badge"
+                        class="badge rounded-pill bg-danger ms-2">
+                        {{ new_members_count }}
+                    </span>
+                {% else %}
+                    <span id="member-list-tab-badge"
+                        class="badge rounded-pill bg-danger ms-2 d-none">
+                        0
+                    </span>
+                {% endif %}
+            </button>
+
+            <button class="tab-btn {{ 'active' if active_tab == 'deactivated' else '' }}"
+                    data-tab="deactivated">
+                <span>Deactivated Accounts</span>
+            </button>
+
+        </div>
+    </div>
+
+    <!-- Tab Contents -->
+    <div class="tab-content-wrapper">
+
+        <!-- Tab 1: Membership Requests -->
+        <div id="requests" class="tab-panel {{ 'active' if active_tab == 'requests' or not active_tab else '' }}">
+
+            <div class="panel-header-action">
+                <p class="priority-label">Prioritize by: <strong>Date Requested</strong></p>
+            </div>
+            
+            <div class="requests-list" id="requestsList">
+                {% set pending_requests = (membership_requests|default([]))|selectattr('status','in',['pending','Pending'])|list %}
+                {% if pending_requests and pending_requests|length > 0 %}
+                    {% for request in pending_requests %}
+                    <div class="request-card" data-request-id="{{ request.id }}">
+                        <div class="request-info">
+                            <h3 class="customer-name">{{ request.user.name }}</h3>
+                            <p class="detail-text">Email: {{ request.user.email }}</p>
+                            <p class="detail-text">Contact Number: {{ request.user.phone or 'N/A' }}</p>
+                        </div>
+                        <div class="request-plan">
+                            <h4 class="column-title">Selected Plan</h4>
+                            <p class="plan-name">{{ request.plan_name }}</p>
+                            <p class="detail-text">Date Requested: {{ request.created_at.strftime('%m/%d/%y - %I:%M %p') if request.created_at else 'N/A' }}</p>
+                        </div>
+                        <div class="request-payment">
+                            <h4 class="column-title">Payment Verification</h4>
+                            {% set receipt_path = request.receipt_image if request.receipt_image and request.receipt_image.startswith('/') else url_for('static', filename='uploads/receipts/' ~ (request.receipt_image or '')) %}
+                            <button
+                                class="btn-check-receipt"
+                                type="button"
+                                data-receipt-url="{{ receipt_path if request.receipt_image else '' }}"
+                                data-request-name="{{ request.user.name|e }}"
+                            >
+                                Check
+                            </button>
+                        </div>
+                        <div class="request-actions">
+                            <form method="POST" action="{{ url_for('admin.approve_membership', req_id=request.id) }}">
+                                <button type="submit" class="btn-approve">Approve</button>
+                            </form>
+                            <form method="POST" action="{{ url_for('admin.reject_membership', req_id=request.id) }}">
+                                <button type="submit" class="btn-reject">Reject</button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="no-data-placeholder">
+                    <p>No membership requests at the moment.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+<!-- Tab 2: Member List -->
+        <div id="list" class="tab-panel {{ 'active' if active_tab == 'list' else '' }}">
+            <div class="list-controls">
+                <div class="list-title-group">
+                    <h2 class="section-heading">Official Members</h2>
+                    <p class="section-subtext">Review and manage current members.</p>
+                </div>
+                <div class="list-search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="memberListSearch" placeholder="Search members...">
+                </div>
+            </div>
+
+            <div class="members-card-list">
+                {% set ns = namespace(count=0) %}
+                {% for member in members %}
+                    {% if member.membership and member.membership.status == 'active' %}
+                        {% set ns.count = ns.count + 1 %}
+                        <div class="member-list-card" data-searchable="{{ member.name }} {{ member.email }} WS-WLK-{{ member.id }}" data-user-id="{{ member.id }}" data-membership-id="{{ member.membership.id if member.membership else member.id }}" data-end-time="{{ member.membership.expiry_date.isoformat() if member.membership and member.membership.expiry_date else '' }}">
+                            {% set is_checked_in_val = member.membership and member.membership.is_checked_in %}
+                            {% set raw_paused = (member.membership and member.membership.is_paused) or (member.is_paused if member.is_paused is defined else False) %}
+                            {% set is_paused_val = is_checked_in_val and raw_paused %}
+                            {% set visit_count = member.membership.attendance_logs.count() if member.membership else 0 %}
+                            <div class="member-card-header">
+                                <div class="member-header-info">
+                                    <h3 class="member-name">{{ member.name }}</h3>
+                                    <div class="member-sub-info">
+                                        <span>WS-WLK-{{ member.id }}</span>
+                                        <div class="member-contact-stack">
+                                            <span>Email: {{ member.email }}</span>
+                                            <span>Contact: {{ member.phone or 'N/A' }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="member-header-plan">
+                                    <span>Plan: {{ member.membership.plan_name if member.membership else 'Solo Plan' }}</span>
+                                    <span>Status:
+                                        {% if is_paused_val %}
+                                            <strong id="status-text-{{ member.id }}" class="status-paused">Paused</strong>
+                                        {% elif is_checked_in_val %}
+                                            <strong id="status-text-{{ member.id }}" class="status-checkin">Checked In</strong>
+                                        {% elif member.membership and member.membership.is_checked_out %}
+                                            <strong id="status-text-{{ member.id }}">Checked Out</strong>
+                                        {% else %}
+                                            <strong id="status-text-{{ member.id }}">Ready to check in</strong>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <div class="remaining-time-badge">
+                                    <span>Remaining Time</span>
+                                    <strong>{{ '%.2f'|format(member.membership.hours_left or 0) }} hrs</strong>
+                                </div>
+                            </div>
+                            <div class="member-card-left-column">
+                                <div class="member-status-icon">
+                                    <div class="status-indicator-box active">
+                                        <i class="fas fa-file-invoice"></i>
+                                        <span>Active</span>
+                                    </div>
+                                </div>
+                                <div class="member-card-actions">
+                                    <div class="session-action-group">
+                                        {% if member.membership and member.membership.is_checked_in %}
+                                            <!-- STATE 1: CURRENTLY CHECKED IN -->
+                                            <button class="btn-check-in disabled-btn" type="button" disabled style="background-color: #10b981; color: #ffffff; opacity: 0.65; cursor: not-allowed; width: 100%;">
+                                                Checked In
+                                            </button>
+
+                                            {% set member_membership_id = member.membership.id if (member.membership and member.membership.id) else member.id %}
+                                            {% set member_name_val = member.name if member.name is defined else (member.user.name if member.user is defined else 'Member') %}
+
+                                            <button type="button" id="pause-btn-{{ member_membership_id }}" class="btn-pause-session {% if is_paused_val %}btn-warning{% else %}btn-secondary{% endif %}" data-membership-id="{{ member_membership_id }}" data-member-id="{{ member.id }}" data-is-paused="{{ 'true' if is_paused_val else 'false' }}" data-member-name="{{ member_name_val }}" onclick="handlePauseClick(this)">
+                                                {% if is_paused_val %}Resume Session{% else %}Pause Session{% endif %}
+                                            </button>
+
+                                            <button type="button" class="btn-deactivate" style="width: 100%; background-color: #dc3545; color: white;" onclick="handleCheckout('{{ member.id }}')">Check-Out Customer</button>
+
+                                        {% elif member.membership and member.membership.is_checked_out and not (member.id in approved_solo_user_ids) %}
+                                            <button type="button" class="btn-deactivate" style="width: 100%; opacity: 0.65; cursor: not-allowed; background-color: #dc3545; color: white;" disabled>Checked Out</button>
+                                        {% else %}
+                                            <button class="btn-check-in btn-action" type="button" data-user-id="{{ member.id }}" data-membership-id="{{ member.membership.id if member.membership else member.id }}" data-is-checked-in="false" style="width: 100%; background-color: #10b981; color: #ffffff; cursor: pointer;">Check In</button>
+                                        {% endif %}
+                                    </div>
+
+                                    <button class="btn-view-records" type="button" data-user-id="{{ member.id }}" data-membership-id="{{ member.membership.id if member.membership else '' }}">View Records</button>
+
+                                    <div class="manage-action-group">
+                                    {% if member.membership and member.membership.is_checked_in %}
+                                        <button type="button" class="btn renew-btn" style="font-weight: bold; background-color: #153d70; color: white; opacity: 0.65; cursor: not-allowed;" disabled>Renew Membership</button>
+                                    {% else %}
+                                        <button class="btn renew-btn btn-action" type="button" onclick="renewMember('{{ member.id }}')" data-user-id="{{ member.id }}" style="font-weight: bold; background-color: #153d70; color: white; cursor: pointer;">Renew Membership</button>
+                                    {% endif %}
+
+                                    <button class="btn-deactivate" type="button" data-user-id="{{ member.id }}">Deactivate</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="member-activity-logs-container" aria-label="Recent activity">
+                                <div class="member-activity-logs-header">
+                                    <span>SESSION ACTIVITY</span>
+                                    <span class="member-activity-logs-count">Daily session history {{ visit_count }} visits</span>
+                                </div>
+                                <div class="member-activity-logs" data-activity-membership-id="{{ member.membership.id if member.membership else member.id }}">
+                                    <p class="member-activity-log-empty">Loading activity...</p>
+                                </div>
+                            </div>
+                        </div> <!-- End of .member-list-card -->
+                    {% endif %}
+                {% endfor %}
+
+                {% if ns.count == 0 %}
+                <div class="no-data-placeholder">
+                    <p>No official members found.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+  <!-- Tab 3: Deactivated Accounts -->
+        <div id="deactivated" class="tab-panel {{ 'active' if active_tab == 'deactivated' else '' }}">
+            <div class="list-controls">
+                <div class="list-title-group">
+                    <h2 class="section-heading">Deactivated Accounts</h2>
+                    <p class="section-subtext">Soft disabled accounts are preserved for reporting and can be restored.</p>
+                </div>
+                <div class="list-filters">
+                    <div class="list-search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="deactivatedListSearch" placeholder="Search deactivated accounts...">
+                    </div>
+                    <div class="deactivated-filter-row">
+                        <label for="deactivatedDateFilter">Deactivated since</label>
+                        <input type="date" id="deactivatedDateFilter" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="members-card-list">
+                {% set deactivated_members = [] %}
+                {% for m in members %}
+                    {% if not m.is_active %}
+                        {% set _ = deactivated_members.append(m) %}
+                    {% endif %}
+                {% endfor %}
+                
+                {% if deactivated_members and deactivated_members|length > 0 %}
+                    {% for member in deactivated_members %}
+                    <div class="member-list-card deactivated-card" 
+                        style="display: flex; align-items: center; justify-content: space-between; padding: 20px; background: #ffffff; border-radius: 10px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); gap: 16px;"
+                        data-searchable="{{ member.name }} {{ member.email }} WS-WLK-{{ member.id }} {{ member.last_deactivation_reason or 'Manual deactivation' }}" 
+                        data-deactivated-date="{{ member.last_deactivated_at.strftime('%Y-%m-%d') if member.last_deactivated_at else '' }}">
+                        
+                        <!-- 1. STATUS ICON -->
+                        <div class="member-status-icon" style="flex-shrink: 0;">
+                            <div class="status-indicator-box inactive" style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 70px; height: 70px; background: #fff5f5; border: 1px solid #ffe3e3; border-radius: 8px;">
+                                <i class="fas fa-user-slash" style="color: #dc3545; font-size: 18px; margin-bottom: 4px;"></i>
+                                <span style="color: #dc3545; font-size: 12px; font-weight: 600;">Inactive</span>
+                            </div>
+                        </div>
+                        
+                        <!-- 2. MEMBER MAIN INFO -->
+                        <div class="member-main-info" style="flex: 1; min-width: 200px;">
+                            <h3 class="member-name" style="margin: 0 0 4px 0; font-size: 16px; font-weight: 700; color: #1e293b;">{{ member.name }}</h3>
+                            <p class="member-id-tag" style="margin: 0 0 6px 0; font-size: 12px; color: #64748b; font-weight: 600;">WS-WLK-{{ member.id }}</p>
+                            <p class="detail-text" style="margin: 2px 0; font-size: 13px; color: #475569;">Email: {{ member.email }}</p>
+                            <p class="detail-text" style="margin: 2px 0; font-size: 13px; color: #475569;">Contact: {{ member.phone or 'N/A' }}</p>
+                        </div>
+                        
+                        <!-- 3. STATS (DATE & REASON) -->
+                        <div class="member-stats" style="flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 10px;">
+                            <div class="stat-item" style="display: flex; align-items: flex-start; gap: 8px;">
+                                <i class="fas fa-calendar-alt" style="color: #64748b; margin-top: 3px;"></i>
+                                <div class="stat-content">
+                                    <span class="stat-label" style="display: block; font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Deactivated On</span>
+                                    <span class="stat-value" style="font-size: 13px; font-weight: 600; color: #334155;">
+                                        {% if member.last_deactivated_at %}
+                                            {{ member.last_deactivated_at.strftime('%b %d, %Y') }}
+                                        {% elif member.updated_at %}
+                                            {{ member.updated_at.strftime('%b %d, %Y') }}
+                                        {% else %}
+                                            Aug 08, 2026
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="stat-item" style="display: flex; align-items: flex-start; gap: 8px;">
+                                <i class="fas fa-flag" style="color: #64748b; margin-top: 3px;"></i>
+                                <div class="stat-content">
+                                    <span class="stat-label" style="display: block; font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Reason</span>
+                                    <span class="stat-value" style="font-size: 13px; color: #334155; display: block; max-width: 180px;">{{ member.last_deactivation_reason or 'Manual soft deactivation' }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 4. ACTION BUTTONS (INSIDE THE CARD CONTAINER) -->
+                        <div class="member-card-actions" style="display: flex; flex-direction: column; gap: 8px; width: 150px; flex-shrink: 0;">
+                            <button class="btn-reactivate" 
+                                    type="button" 
+                                    data-user-id="{{ member.id }}" 
+                                    data-user-name="{{ member.name|e }}"
+                                    style="width: 100%; height: 36px; background-color: #153d70; color: #ffffff; border: none; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                                Reactivate
+                            </button>
+                            <button class="btn-delete-member" 
+                                    type="button" 
+                                    data-user-id="{{ member.id }}" 
+                                    data-user-name="{{ member.name|e }}"
+                                    style="width: 100%; height: 36px; background-color: #dc3545; color: #ffffff; border: none; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                                Permanent Delete
+                            </button>
+                        </div>
+
+                    </div> <!-- End of .member-list-card -->
+                    {% endfor %}
+                {% else %}
+                <div class="no-data-placeholder">
+                    <p>No deactivated accounts found.</p>
+                </div>
+                {% endif %}
+            </div>
+    </div>
+
+<!-- GLOBAL JAVASCRIPT FUNCTIONS (Sira sang Template) -->
+<script>
+    function handleCheckout(userId) {
+        Swal.fire({
+            title: 'Check Out',
+            text: 'Check out this member now?',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#7367f0',
+            cancelButtonColor: '#6e7881',
+            confirmButtonText: 'Confirm',
+            cancelButtonText: 'Cancel'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                fetch(`/admin/api/member/${userId}/check-out`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        Swal.fire({
+                            title: 'Success!',
+                            text: data.message,
+                            icon: 'success',
+                            timer: 1500,
+                            showConfirmButton: false
+                        }).then(() => {
+                            if (typeof window.refreshMemberActivityLogs === 'function') {
+                                window.refreshMemberActivityLogs(userId);
+                            }
+                        });
+                    } else {
+                        Swal.fire('Error!', data.message, 'error');
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    Swal.fire('Error!', 'Something went wrong.', 'error');
+                });
+            }
+        });
+    }
+
+    function renewMember(memberId) {
+        if (!memberId) return;
+
+        fetch('/admin/renew_member', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ user_id: memberId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showStaticFlashBanner(data.message, 'success');
+            } else {
+                showStaticFlashBanner(data.message || 'Renewal failed', 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showStaticFlashBanner('An error occurred during renewal.', 'danger');
+        });
+    }
+
+    function showStaticFlashBanner(message, category) {
+        let container = document.getElementById('flash-message-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'flash-message-container';
+            container.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 9999; max-width: 480px; width: 90%;';
+            document.body.appendChild(container);
+        }
+        container.innerHTML = '';
+
+        const isSuccess = category === 'success';
+        const bgColor = isSuccess ? '#d1e7dd' : '#f8d7da';
+        const textColor = isSuccess ? '#0f5132' : '#842029';
+        const borderColor = isSuccess ? '#badbcc' : '#f5c2c7';
+
+        const alertBox = document.createElement('div');
+        alertBox.style.cssText = `
+            background-color: ${bgColor};
+            color: ${textColor};
+            border: 1px solid ${borderColor};
+            padding: 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            font-family: Arial, sans-serif;
+        `;
+
+        alertBox.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+                <div style="font-weight: bold; font-size: 14px; line-height: 1.4;">
+                    ${isSuccess ? '⚠️ ' : '❌ '} ${message}
+                </div>
+                <button onclick="closeBannerAndRefresh()" style="background: none; border: none; font-size: 20px; font-weight: bold; cursor: pointer; color: ${textColor}; line-height: 1;">✕</button>
+            </div>
+        `;
+
+        container.appendChild(alertBox);
+    }
+
+    function closeBannerAndRefresh() {
+        location.reload();
+    }
+</script>
+
+<!-- Receipt / Records Modals -->
+<div id="receiptModal" class="modal-overlay" aria-hidden="true">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3>Payment Receipt</h3>
+            <button class="modal-close" type="button">×</button>
+        </div>
+        <div class="modal-body" id="receiptModalBody">
+            <p class="modal-placeholder">Loading receipt...</p>
+        </div>
+    </div>
+</div>
+
+<div id="recordsModal" class="modal-overlay" aria-hidden="true">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3>Attendance Records</h3>
+            <button class="modal-close" type="button">×</button>
+        </div>
+        <div class="modal-body" id="recordsModalBody">
+            <div class="records-empty-state">
+                <p>Select a member to view attendance history.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- <script>
+document.addEventListener("DOMContentLoaded", function () {
+    const tabContainer = document.getElementById("membersTabNav");
+    if (!tabContainer) return;
+
+    const tabs = tabContainer.querySelectorAll(".tab-btn");
+
+    // 1. Check kon may na-save nga tab sa localStorage
+    const savedTab = localStorage.getItem("activeMemberTab");
+    if (savedTab) {
+        const targetBtn = tabContainer.querySelector(`[data-tab="${savedTab}"]`);
+        if (targetBtn) {
+            tabs.forEach(btn => btn.classList.remove("active"));
+            targetBtn.classList.add("active");
+
+            // Tago/Ipakita man ang corresponding content panels kon custom JS ang gamit nyo
+            document.querySelectorAll(".tab-panel, .tab-content").forEach(panel => {
+                if (panel.id === `${savedTab}-panel` || panel.getAttribute("data-panel") === savedTab) {
+                    panel.classList.add("active", "show");
+                } else {
+                    panel.classList.remove("active", "show");
+                }
+            });
+        }
+    }
+
+    // 2. I-save sa localStorage kon mag-click sang bag-o nga tab
+    tabs.forEach(btn => {
+        btn.addEventListener("click", function () {
+            const selectedTab = this.getAttribute("data-tab");
+            if (selectedTab) {
+                localStorage.setItem("activeMemberTab", selectedTab);
+            }
+        });
+    });
+});
+</script> -->
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/admin/members.js') }}"></script>
+{% endblock %}

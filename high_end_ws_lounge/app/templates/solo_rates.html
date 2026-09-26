@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}Solo Plans & Rates{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/solo_plans_modern.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="solo-page container">
+    <div class="solo-header">
+        <div>
+            <h2>Solo Plan Rates</h2>
+            <p class="solo-intro">Choose your plan, upload your payment receipt, and wait for admin approval. Your current solo plan status is shown below.</p>
+        </div>
+    </div>
+
+    <!-- Solo Status and Membership Info Cards -->
+    <div class="solo-status-grid">
+        <div class="status-card">
+            <div class="status-card-header">
+                <h5>Solo Plan Status</h5>
+                {% if active_solo_plan and active_solo_plan.is_active %}
+                    <span class="badge badge-success">Active</span>
+                {% elif has_pending %}
+                    <span class="badge badge-warning">Pending</span>
+                {% else %}
+                    <span class="badge badge-secondary">None</span>
+                {% endif %}
+            </div>
+            <div class="status-card-body">
+                {% if active_solo_plan %}
+                    <p><strong>Plan:</strong> {{ active_solo_plan.plan_name }}</p>
+                    <p><strong>Expiry:</strong> {{ active_solo_plan.expiry_date.strftime('%Y-%m-%d %I:%M %p') if active_solo_plan.expiry_date else 'Not set' }}</p>
+                    <p><strong>Payment Method:</strong> {{ active_solo_plan.payment_method or 'N/A' }}</p>
+                    <p><strong>Status:</strong> {{ (active_solo_plan.status or 'N/A')|title }}</p>
+                {% elif has_pending %}
+                    <p>Your plan request is waiting for admin approval.</p>
+                {% else %}
+                    <p>No solo plan is currently active.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="status-card">
+            <div class="status-card-header">
+                <h5>Membership Info</h5>
+                {% if active_plan %}
+                    <span class="badge badge-info">Active Member Plan</span>
+                {% else %}
+                    <span class="badge badge-secondary">No Active Membership</span>
+                {% endif %}
+            </div>
+            <div class="status-card-body">
+                {% if active_plan %}
+                    <p><strong>Plan Name:</strong> {{ active_plan.plan_name }}</p>
+                    <p>
+                    <strong>Started:</strong> 
+                    {% if session_start %}
+                        {{ session_start.strftime('%Y-%m-%d %I:%M %p') }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                    </p>
+                    <p>
+                    <strong>Expiration:</strong> 
+                    {% if expiration %}
+                        {{ expiration.strftime('%Y-%m-%d %I:%M %p') }}
+                    {% elif active_plan and active_plan.expiry_date %}
+                        {{ active_plan.expiry_date.strftime('%Y-%m-%d %I:%M %p') }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                    </p>
+                    <p><strong>Remaining days:</strong> {{ remaining_days }}</p>
+
+                    <!-- PAUSE-AWARE COUNTDOWN -->
+                    <p>
+                        <strong>Countdown:</strong> 
+                        <span id="membership-countdown" 
+                            Loading...
+                        </span>
+                    </p>          
+                {% else %}
+                    <p>You do not have a currently active membership plan.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Rate Comparison Table -->
+    <div class="plan-comparison-card">
+        <div class="plan-comparison-header">
+            <h4>Rate Comparison</h4>
+            <p>Compare solo rates at a glance. Click a plan card to submit your payment receipt.</p>
+        </div>
+        <div class="table-responsive">
+            <table class="table plan-table">
+                <thead>
+                    <tr>
+                        <th>Plan</th>
+                        <th>Price</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for plan in plans %}
+                    <tr>
+                        <td>{{ plan.title }}</td>
+                        <td>{{ plan.price }}</td>
+                        <td>
+                            <ul class="plan-details-list">
+                                {% for detail in plan.details %}
+                                <li>{{ detail }}</li>
+                                {% endfor %}
+                            </ul>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Plan Cards -->
+    <div class="plan-cards-grid">
+        {% for plan in plans %}
+        <div class="plan-card">
+            <div class="plan-card-top">
+                <div class="plan-card-title">{{ plan.title }}</div>
+                <div class="plan-card-price">{{ plan.price }}</div>
+            </div>
+            <div class="plan-card-details">
+                <ul>
+                    {% for detail in plan.details %}
+                    <li>{{ detail }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="plan-card-footer">
+                {% if active_solo_plan %}
+                    <button class="btn btn-secondary btn-block" disabled>Active plan in use</button>
+                {% elif has_pending %}
+                    <button class="btn btn-secondary btn-block" disabled>Pending approval</button>
+                {% else %}
+                    <button class="btn btn-primary btn-block purchase-plan-btn" type="button" data-plan-name="{{ plan.title }}" data-plan-price="{{ plan.price }}">Payment Options</button>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Plan Summary Info -->
+    <div class="plan-summary-card">
+        <h4>Plan Summary</h4>
+        {% if message %}
+            <div class="alert alert-success">{{ message }}</div>
+        {% endif %}
+        <p>Choose the rate that fits your needs. After selecting a plan, upload your payment receipt and wait for admin approval.</p>
+        <ul>
+            <li>Plan approvals are reviewed manually by the admin.</li>
+            <li>Your uploaded receipt is stored securely under uploads/receipts.</li>
+            <li>Active plans remain valid until expiry.</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Plan Purchase Modal -->
+<div class="modal-backdrop d-none" id="plan-selection-modal" aria-hidden="true">
+    <div class="modal-card">
+        <button type="button" class="modal-close" id="plan-modal-close">&times;</button>
+        <div class="modal-content-inner">
+            <form id="solo-plan-form" method="POST" enctype="multipart/form-data">
+                {% if csrf_token is defined and csrf_token %}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% endif %}
+                <input type="hidden" id="modal-plan-name-input" name="plan_name" value="">
+
+                <h3 id="modal-plan-title">Purchase Plan</h3>
+                <p class="modal-price" id="modal-plan-price"></p>
+                
+                <div class="modal-row">
+                    <label class="modal-label" style="text-transform: uppercase; font-weight: bold; font-size: 0.85rem; color: #2c3e50;">Payment Method</label>
+                    <div class="modal-radio-group">
+                        <label><input type="radio" name="modal_payment_method" value="GCash" required> GCash</label>
+                        <label><input type="radio" name="modal_payment_method" value="Maya"> Maya</label>
+                    </div>
+                </div>
+
+                <!-- Payment Details -->
+                <div class="modal-payment-details d-none" id="modal-payment-details">
+                    <div class="payment-info-line"><strong>Account Name:</strong> <span id="modal-account-name">WS Students & Professionals Lounge</span></div>
+                    <div class="payment-info-line"><strong>Account Number:</strong> <span id="modal-account-number">0999XXXXXXX</span></div>
+                    <div class="payment-info-line"><strong>Instructions:</strong> <span id="modal-instructions">Please make your payment using the details above and upload your payment receipt.</span></div>
+                    <div class="modal-qr-wrap d-none" id="modal-qr-wrap" style="text-align: center; margin-top: 10px;">
+                        <img id="modal-qr-image" alt="Payment QR" class="modal-qr" src="" style="max-width: 200px; border-radius: 8px; border: 1px solid #ccc;">
+                    </div>
+                </div>
+
+                <div class="modal-row" style="margin-top: 15px;">
+                    <label class="modal-label" for="modal-receipt" style="text-transform: uppercase; font-weight: bold; font-size: 0.85rem; color: #2c3e50;">Upload Receipt</label>
+                    <input type="file" id="modal-receipt" name="receipt_image" accept="image/*, .jpg, .jpeg, .jpe, .png, .gif, .webp, application/pdf" required>
+                </div>
+
+                <div class="modal-row modal-terms-row" style="margin-top: 10px;">
+                    <input type="checkbox" id="modal-terms" required>
+                    <label for="modal-terms" style="font-size: 0.85rem; color: #333;">I agree to upload a valid receipt and follow payment instructions.</label>
+                </div>
+
+                <div class="modal-error" id="modal-error" style="color: #e74c3c; font-size: 0.85rem; font-weight: 600; margin-top: 8px;"></div>
+
+                <div class="modal-actions" style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" id="modal-cancel">CANCEL</button>
+                    <button type="submit" class="btn btn-primary" id="modal-submit" style="background-color: #1a4a75; color: #fff; font-weight: bold;">PROCEED TO PAYMENT</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/solo_rates.js') }}"></script>
+{% endblock %}

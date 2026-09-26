@@ -1,0 +1,2 @@
+# INTEGRATED-STUDY-HUB-MANAGEMENT-SYSTEM-FOR-WS-STUDENTS-PROFESSIONALS-LOUNGE
+The Integrated Study Hub Management System is a web platform for WS Lounge – La Paz. It replaces manual logbooks and spreadsheets to eliminate double-bookings and billing errors. It features interactive space reservations, automated check-in time tracking, instant billing computation, membership monitoring, and live admin sales dashboards.

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}WS Lounge | Students & Professionals{% endblock %}</title>
+    <link rel="icon" type="image/png" sizes="256x256" href="{{ url_for('static', filename='img/favicon.png') }}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" crossorigin="anonymous">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="sidebar-layout">
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-wrapper">
+                <div class="logo-container-circle">
+                    <img src="{{ url_for('static', filename='img/main_logo.png') }}" alt="WS Logo" class="sidebar-logo" id="sidebarLogo">
+                    <i class="fas fa-layer-group fallback-icon" id="fallback-icon"></i>
+                </div>
+                
+                <div class="logo-text-group">
+                    <span class="logo-sub-header">STUDENTS & PROFESSIONALS</span>
+                    <span class="logo-main-title">WS LOUNGE</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- THEME TOGGLE -->
+        <div class="theme-toggle-wrapper">
+            <button
+                type="button"
+                id="themeToggle"
+                class="theme-toggle-btn"
+                aria-label="Toggle light and dark mode"
+                title="Toggle light and dark mode"
+            >
+                <i class="fas fa-moon" id="themeToggleIcon"></i>
+            </button>
+        </div>
+        
+        <div class="sidebar-links">
+            {% if current_user.is_authenticated %}
+                <a class="side-link {% if request.endpoint in ['main.dashboard', 'admin.dashboard'] %}active{% endif %}"
+                    href="{{ url_for('main.dashboard') }}">
+
+                    <i class="fas fa-chart-pie"></i>
+                    <span>Dashboard</span>
+
+                    {% if current_user.role in ['admin', 'staff'] %}
+                        {% if pending_reservations_count > 0 %}
+                            <span id="admin-dashboard-notif-badge"
+                                class="badge rounded-pill bg-danger ms-auto">
+                                {{ pending_reservations_count }}
+                            </span>
+                        {% else %}
+                            <span id="admin-dashboard-notif-badge"
+                                class="badge rounded-pill bg-danger ms-auto d-none">0</span>
+                        {% endif %}
+
+                    {% elif current_user.role == 'member' %}
+                        {% if unread_membership_notification_count > 0 %}
+                            <span id="member-dashboard-notif-badge"
+                                class="badge rounded-pill bg-danger ms-auto">
+                                {{ unread_membership_notification_count }}
+                            </span>
+                        {% else %}
+                            <span id="member-dashboard-notif-badge"
+                                class="badge rounded-pill bg-danger ms-auto d-none">0</span>
+                        {% endif %}
+                    {% endif %}
+
+                </a>
+                
+                <!-- Member Quick Actions -->
+                {% if current_user.is_authenticated and current_user.role == 'member' %}
+                    <a class="side-link {% if request.endpoint == 'main.profile' %}active{% endif %}" href="{{ url_for('main.profile') }}">
+                        <i class="fas fa-user-circle"></i> My Profile
+                    </a>
+                    <a class="side-link {% if request.endpoint == 'main.timelog' %}active{% endif %}" href="{{ url_for('main.timelog') }}">
+                        <i class="fas fa-clock"></i> Use Lounge (Time In/Out)
+                    </a>
+                    <a class="side-link {% if request.endpoint == 'main.rooms' %}active{% endif %}"
+                        href="{{ url_for('main.rooms') }}">
+
+                        <i class="fas fa-door-open"></i>
+                        <span>Book Space</span>
+
+                        {% if unread_reservation_notification_count > 0 %}
+                            <span id="member-reservation-notif-badge"
+                                class="badge rounded-pill bg-danger ms-auto">
+                                {{ unread_reservation_notification_count }}
+                            </span>
+                        {% else %}
+                            <span id="member-reservation-notif-badge"
+                                class="badge rounded-pill bg-danger ms-auto d-none">
+                                0
+                            </span>
+                        {% endif %}
+                    </a>
+                    <a class="side-link {% if request.endpoint == 'main.solo_rates' %}active{% endif %}" href="{{ url_for('main.solo_rates') }}">
+                        <i class="fas fa-gem"></i> Solo Plans
+                    </a>
+                {% endif %}
+                
+                {% if current_user.role in ['admin', 'staff'] %}
+                    <a class="side-link {% if request.endpoint == 'admin.admin_reservations' %}active{% endif %}" href="{{ url_for('admin.admin_reservations') }}">
+                        <i class="fas fa-plus-circle"></i> New Reservation
+                    </a>
+                    <a class="side-link {% if request.endpoint == 'admin.admin_reservations_list' %}active{% endif %}" href="{{ url_for('admin.admin_reservations_list') }}">
+                        <i class="fas fa-calendar-alt"></i> <span>Reservations</span>
+
+                        {% if pending_reservations_count and pending_reservations_count > 0 %}
+                            <span id="res-notif-badge" class="badge rounded-pill bg-danger ms-auto">
+                                {{ pending_reservations_count }}
+                            </span>
+                        {% else %}
+                            <span id="res-notif-badge" class="badge rounded-pill bg-danger ms-auto d-none">0</span>
+                        {% endif %}
+                    </a>
+                    <a class="side-link {% if request.endpoint == 'admin.members' %}active{% endif %}" href="{{ url_for('admin.members') }}">
+                        <i class="fas fa-user-friends"></i>
+                        <span>Members</span>
+
+                        {% set members_notification_count = pending_solo_plans_count + new_members_count %}
+
+                        {% if members_notification_count > 0 %}
+                            <span id="mem-notif-badge" class="badge rounded-pill bg-danger ms-auto">
+                                {{ members_notification_count }}
+                            </span>
+                        {% else %}
+                            <span id="mem-notif-badge" class="badge rounded-pill bg-danger ms-auto d-none">0</span>
+                        {% endif %}
+                    </a>
+                {% endif %}
+                {% if current_user.role == 'admin' %}
+                    <a class="side-link {% if request.endpoint == 'admin.payment_settings' %}active{% endif %}" href="{{ url_for('admin.payment_settings') }}">
+                        <i class="fas fa-qrcode"></i> Payment Settings
+                    </a>
+                    <a class="side-link {% if request.endpoint == 'admin.reports' %}active{% endif %}" href="{{ url_for('admin.reports') }}">
+                        <i class="fas fa-file-invoice"></i> Reports
+                    </a>
+                    <a class="side-link {% if request.endpoint == 'admin.manage_staff' %}active{% endif %}" href="{{ url_for('admin.manage_staff') }}">
+                        <i class="fas fa-user-cog"></i> Manage Staff
+                    </a>
+                {% endif %}
+                
+                <div class="sidebar-footer">
+                    <a class="side-link logout-link" href="{{ url_for('auth.logout') }}">
+                        <i class="fas fa-sign-out-alt"></i> Logout ({{ current_user.name }})
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+    </nav>
+
+    <div class="main-wrapper">
+        <main class="content-container">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="alert-container">
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ 'info' if not category else category }}">{{ message }}</div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="{{ url_for('static', filename='js/base.js') }}"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const toggle = document.getElementById('themeToggle');
+    const icon = document.getElementById('themeToggleIcon');
+
+    if (!toggle) {
+        console.log('Theme toggle button not found.');
+        return;
+    }
+
+    function applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+
+        if (theme === 'dark') {
+            if (icon) {
+                icon.className = 'fas fa-sun';
+            }
+        } else {
+            if (icon) {
+                icon.className = 'fas fa-moon';
+            }
+        }
+    }
+
+    const savedTheme = localStorage.getItem('theme') || 'light';
+
+    applyTheme(savedTheme);
+
+    toggle.addEventListener('click', function () {
+        const currentTheme =
+            document.documentElement.getAttribute('data-theme') || 'light';
+
+        const newTheme =
+            currentTheme === 'dark' ? 'light' : 'dark';
+
+        applyTheme(newTheme);
+        localStorage.setItem('theme', newTheme);
+    });
+});
+</script>
+
+{% block extra_js %}{% endblock %}
+</body>
+</html>

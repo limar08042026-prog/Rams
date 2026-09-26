@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/timelog.css') }}?v=1.4">
+{% endblock %}
+
+{% block content %}
+<div class="timelog-wrapper">
+    <h2 class="page-title" aria-label="Usage History and Insights">Lounge Usage Logs</h2>
+
+    <!-- Insights Section -->
+    <div class="timelog-stats-grid" role="region" aria-label="Lounge Statistics">
+        <div class="log-stat-card">
+            <div class="stat-icon-circle" aria-hidden="true"><i class="fas fa-history"></i></div>
+            <div class="stat-value">
+                {% set mins = totals.month_time_minutes or 0 %}
+                {{ mins // 60 }}hr {{ mins % 60 }}m
+            </div>
+            <div class="stat-desc">Monthly Total Hours</div>
+        </div>
+        <div class="log-stat-card">
+            <div class="stat-icon-circle" aria-hidden="true"><i class="fas fa-door-open"></i></div>
+            <div class="stat-value">{{ totals.most_used_room or 'N/A' }}</div>
+            <div class="stat-desc">Most Used Room</div>
+        </div>
+        <div class="log-stat-card">
+            <div class="stat-icon-circle" aria-hidden="true"><i class="fas fa-chart-line"></i></div>
+            <div class="stat-value">{{ totals.avg_session_length or 0 }}m</div>
+            <div class="stat-desc">Avg. Session Length</div>
+        </div>
+        <div class="log-stat-card">
+            <div class="stat-icon-circle" aria-hidden="true"><i class="fas fa-medal"></i></div>
+            <div class="stat-value">{{ completed_sessions|default(0) }}</div>
+            <div class="stat-desc">Total Completed Sessions</div>
+        </div>
+    </div>
+
+    <!-- Main Active Session Section -->
+    <div id="active-session-container" class="card p-4 shadow-sm mb-4">
+        <div id="no-active-session-view" class="text-center py-4{% if active_session %} d-none{% endif %}">
+            <div class="d-flex justify-content-end mb-2">
+                <span class="badge bg-light text-dark border px-3 py-2" id="current-live-time">--:--:-- --</span>
+            </div>
+            <h3 class="text-primary font-weight-bold">No Active Session</h3>
+            <p class="text-muted">Status: <span id="statusText">Awaiting Reservation</span></p>
+        </div>
+
+        <div id="active-session-view"{% if not active_session %} class="d-none"{% endif %}>
+            <div class="d-flex justify-content-between align-items-center pb-3 mb-3 border-bottom flex-wrap gap-2">
+                <div>
+                    <span class="fw-bold me-3">Plan: <span id="customer-plan-name">{{ active_session.plan_name if active_session and active_session.plan_name else 'INDIVIDUAL RATE' }}</span></span>
+                    <span>Status: <span class="badge bg-success" id="customer-status-badge">Checked In</span></span>
+                </div>
+                <div class="badge bg-primary text-white px-3 py-2 fs-6">
+                    Remaining Time: <span id="customer-countdown-timer">00h 00m 00s</span>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-3 d-flex flex-column gap-2 border-end pe-3">
+                    <form action="{{ url_for('main.checkout_solo_plan') }}" method="POST">
+                        <button id="btn-customer-checkout" type="submit" class="btn btn-danger w-100 py-2 fw-bold" onclick="return confirm('Are you sure you want to check out now?');">
+                            <i class="fas fa-sign-out-alt me-1"></i> Check Out
+                        </button>
+                    </form>
+                </div>
+
+                <div class="col-md-9 ps-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="fw-bold text-uppercase text-secondary m-0">SESSION ACTIVITY</h6>
+                        <small class="text-muted" id="customer-visit-count-label">Current session visits: 1</small>
+                    </div>
+                    <div class="session-activity-list" id="customer-activity-feed">
+                        {% set active_log = logs|selectattr('status', 'equalto', 'Active')|list|first %}
+                        <div class="activity-item pb-3 mb-2 border-bottom d-flex justify-content-between">
+                            <div>
+                                <strong class="text-success d-block">Check-In</strong>
+                                <small class="text-muted">Session started</small>
+                            </div>
+                            <span class="text-muted small">{{ active_log.time_in.strftime('%b %d, %Y - %I:%M %p') if active_log and active_log.time_in else 'N/A' }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Usage History Section -->
+        <div class="recent-logs-section" id="usage-records">
+            <h3 class="section-subtitle">Usage History</h3>
+            <div class="history-grid">
+                {% if logs %}
+                    {% for log in logs %}
+                    {% set t_in = log.time_in if log.time_in is defined else log['time_in'] %}
+                    {% set t_out = log.time_out if log.time_out is defined else log['time_out'] %}
+                    {% set log_status = log.status if log.status is defined else log['status'] %}
+                    {% set plan = log.plan if log.plan is defined else log['plan'] %}
+                    {% set total_time = log.total_time if log.total_time is defined else log['total_time'] %}
+
+                    <div class="history-card" role="article">
+                        <div class="history-header">
+                            <span class="history-date">
+                                <i class="far fa-calendar-alt"></i> 
+                                {{ t_in.strftime('%B %d, %Y') if t_in else 'N/A' }}
+                            </span>
+
+                            <!-- FIX: Check kun may Check-Out Time (t_out) na -->
+                            {% if t_out or log_status == 'Ended' or log_status == 'Completed' %}
+                                <span class="status-badge ended-bg">ENDED</span>
+                            {% elif log_status == 'Cancelled' %}
+                                <span class="status-badge cancelled-bg">CANCELLED</span>
+                            {% else %}
+                                <!-- Para lang sa ONGOING / ACTIVE LOG -->
+                                {% if membership and membership.is_paused %}
+                                    <span class="status-badge paused-bg bg-warning text-dark">PAUSED</span>
+                                {% else %}
+                                    <span class="status-badge active-bg">ACTIVE</span>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+
+                        <div class="history-body">
+                            <div class="history-item">
+                                <span class="label">Room:</span>
+                                <span class="value">{{ plan or 'Lounge Area' }}</span>
+                            </div>
+                            <div class="history-item">
+                                <span class="label">Duration:</span>
+                                <span class="value">
+                                    {{ t_in.strftime('%I:%M %p') if t_in else 'N/A' }} - 
+                                    {{ t_out.strftime('%I:%M %p') if t_out else 'Ongoing' }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="history-footer">
+                            <span class="duration-text">
+                                <i class="far fa-clock"></i> Total: {{ total_time if total_time is not none else '--' }} mins
+                            </span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="no-data">No usage history found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/timelog.js') }}"></script>
+{% endblock %}

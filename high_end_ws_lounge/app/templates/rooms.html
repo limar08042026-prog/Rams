@@ -1,0 +1,461 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/rooms_modern.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="rooms-container">
+    <h2 class="page-title">Rooms & Reservations</h2>
+    <p class="page-subtitle">Book your preferred space with ease</p>
+
+    <!-- Reservation Confirmation Popup -->
+    {% if unread_confirmed_reservations %}
+    <div id="reservation-confirmation-popup"
+         style="
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            width: 360px;
+            max-width: calc(100vw - 40px);
+         ">
+
+        {% for reservation in unread_confirmed_reservations %}
+        <div class="reservation-notification-item"
+             style="
+                background: #ffffff;
+                border-left: 4px solid #198754;
+                border-radius: 10px;
+                box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+                padding: 14px 16px;
+                margin-bottom: 10px;
+             ">
+
+            <div style="
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 10px;
+            ">
+                <strong style="color: #198754;">
+                    Reservation Confirmed
+                </strong>
+
+                <button
+                    type="button"
+                    onclick="this.closest('.reservation-notification-item').remove()"
+                    style="
+                        border: none;
+                        background: transparent;
+                        color: #999;
+                        font-size: 18px;
+                        cursor: pointer;
+                        padding: 0;
+                    ">
+                    &times;
+                </button>
+            </div>
+
+            <p style="margin: 6px 0 0; color: #444;">
+                Your reservation has been confirmed by the staff.
+            </p>
+
+            {% if reservation.room %}
+            <small style="color: #777;">
+                {{ reservation.room.name }}
+            </small>
+            {% endif %}
+
+        </div>
+        {% endfor %}
+
+    </div>
+    {% endif %}
+
+   <!-- Form Errors Block -->
+    {% if form and form.errors %}
+        <div class="modern-alert alert-danger">
+            <button type="button" class="alert-dismiss" onclick="this.parentElement.remove();">&times;</button>
+            {% for field, errors in form.errors.items() %}
+                <strong>{{ field.replace('_', ' ').title() }}:</strong> {{ errors[0] }}<br>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+
+    <div class="rooms-flex">
+        <div class="rooms-sidebar">
+            <div class="room-list-card">
+                <h5 class="sidebar-section-title">Available Rooms</h5>
+                <ul class="room-list">
+                    {% set unique_rooms = [] %}
+                    {% for room in rooms %}
+                        {% if room.name not in unique_rooms %}
+                            {% set is_common_area = 'common area' in room.name.lower() %}
+                            {% set current_pax = room_pax_count[room.id] if (room_pax_count is defined and room.id in room_pax_count) else 0 %}
+                            {% set max_pax = room.capacity if (room.capacity is defined and room.capacity) else 70 %}
+
+                            {# Dynamic Status Validation #}
+                            {% if is_common_area %}
+                                {% set is_available = (current_pax < max_pax) and (room.status and room.status.lower() == 'available') %}
+                            {% else %}
+                                {% set is_occupied = occupied_room_ids is defined and room.id in occupied_room_ids %}
+                                {% set is_available = (not is_occupied) and (room.status and room.status.lower() == 'available') %}
+                            {% endif %}
+
+                            <li class="room-item">
+                                <div>
+                                    <div class="room-name">{{ room.name }}</div>
+                                    <div class="room-rate">
+                                        ₱{{ room.base_rate }}/hr
+                                        {% if is_common_area %}
+                                            <small class="text-muted">({{ current_pax }}/{{ max_pax }} occupied)</small>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <span class="room-status status-{{ 'available' if is_available else 'unavailable' }}">
+                                    {{ 'AVAILABLE' if is_available else 'UNAVAILABLE' }}
+                                </span>
+                            </li>
+                            
+                            {% set _ = unique_rooms.append(room.name) %}
+                        {% endif %}
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        <div class="reservation-form-card">
+            <h5 class="form-section-title">Reservation</h5>
+            <form method="POST" id="booking-form" enctype="multipart/form-data" novalidate>
+                {{ form.hidden_tag() }}
+                {{ form.is_open_time(class="d-none", id="form-open-time") }}
+
+                <div class="form-grid">
+                    <div class="input-group-modern">
+                        {{ form.customer_name.label(class="form-label-modern") }}
+                        {{ form.customer_name(class="modern-input", placeholder="e.g Darwen Salcedo", required=True) }}
+                    </div>
+                    <div class="input-group-modern">
+                        {{ form.contact_number.label(class="form-label-modern") }}
+                        {{ form.contact_number(class="modern-input", placeholder="e.g 09121234567", required=True) }}
+                    </div>
+                </div>
+
+
+                <div class="form-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; align-items: end; margin-bottom: 15px;">
+    
+                    <!-- 1. Select Area Container -->
+                    <div class="input-group-modern" style="display: flex; flex-direction: column;">
+                        {{ form.room_id.label(class="form-label-modern", text="Select Area", style="margin-bottom: 6px;") }}
+                        <select name="{{ form.room_id.name }}" class="modern-select" required id="room-selector" style="height: 42px; box-sizing: border-box; width: 100%;">
+                            <option value="" disabled selected>Choose a room...</option>
+                            {% set unique_select = [] %}
+                            {% for room in rooms %}
+                                {% if room.name not in unique_select %}
+                                    
+                                    {# 1. Check kon Common Area o Shared Space #}
+                                    {% if "common area" in room.name|lower %}
+                                        {% set max_cap = room.capacity if room.capacity is defined and room.capacity else 70 %}
+                                        {% set current_pax = room_pax_count.get(room.id, 0) if room_pax_count is defined else 0 %}
+                                        
+                                        {# Kon mas gamay sa max_capacity, allowed pa mag-book #}
+                                        {% if current_pax < max_cap and room.status and room.status.lower() == 'available' %}
+                                            <option value="{{ room.id }}" data-rate="{{ room.base_rate }}">
+                                                {{ room.name }} (₱{{ room.base_rate }}/hr)
+                                            </option>
+                                        {% else %}
+                                            <option value="{{ room.id }}" data-rate="{{ room.base_rate }}" disabled style="color: #94a3b8; background-color: #f8fafc;">
+                                                {{ room.name }} (Full / Unavailable)
+                                            </option>
+                                        {% endif %}
+
+                                    {# 2. Para sa Regular Private Rooms (Single Occupancy) #}
+                                    {% else %}
+                                        {% if room.id not in occupied_room_ids and room.status and room.status.lower() == 'available' %}
+                                            <option value="{{ room.id }}" data-rate="{{ room.base_rate }}">
+                                                {{ room.name }} (₱{{ room.base_rate }}/hr)
+                                            </option>
+                                        {% else %}
+                                            <option value="{{ room.id }}" data-rate="{{ room.base_rate }}" disabled style="color: #94a3b8; background-color: #f8fafc;">
+                                                {{ room.name }} (Unavailable)
+                                            </option>
+                                        {% endif %}
+                                    {% endif %}
+
+                                    {% set _ = unique_select.append(room.name) %}
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- 2. Dynamic Pax Count Container (Nakatupong gid kag gawas sa <select>) -->
+                    <div class="input-group-modern" id="pax_container" style="display: flex; flex-direction: column;">
+                        <label class="form-label-modern" style="margin-bottom: 6px;">Pax Count / No. of Persons</label>
+                        {{ form.pax_count(class_="modern-input", id="pax_count", type="number", min="1", value="1", style="height: 42px; box-sizing: border-box; width: 100%;") }}
+                    </div>
+
+                </div>
+
+                <div class="input-grid-3 date-time-grid">
+                    <div class="input-group">
+                        {{ form.start_time.label(class="form-label-modern", text="Start Date/Time") }}
+                        {{ form.start_time(class="modern-input", type="datetime-local", id="start-time") }}
+                    </div>
+                   <div class="input-group">
+                        <label class="form-label">Duration</label>
+                        <select id="duration-select" class="modern-select">
+                            {% for hours in range(1, 25) %}
+                                <option value="{{ hours }}">{{ hours }} hour{{ 's' if hours > 1 else '' }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="datetime-local" id="end-display" class="modern-input mt-10" readonly placeholder="Auto-calculated end time">
+                        
+                        <!-- Hidden input validation: Siguraduhon nga dynamic ang validation -->
+                        {{ form.end_time(type="hidden", id="end-time") }}
+                    </div>
+
+                    <div class="input-group align-items-center">
+                        <label class="form-label">Open Time</label>
+                        <label class="switch">
+                            <!-- INI ANG DAPAT DUGANGAN: name="is_open_time" -->
+                            <input type="checkbox" id="open-time-toggle" name="is_open_time" value="true">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="notes-section">
+                    <h6 class="notes-title">STAFF NOTES & EXTRA FEES</h6>
+                    <div class="form-grid">
+                        <div class="input-group-modern">
+                            <label class="form-label-modern">Predefined Add-ons</label>
+                            <select id="extra-fees-select" name="predefined_addon_name" class="modern-select">
+                                <option value="None">None</option>
+                                <option value="Projector" data-unit-price="100">Projector (+₱100/3hrs)</option>
+                                <option value="Extra Chair" data-unit-price="0">Extra Chair (Free)</option>
+                                <option value="Extension Cord" data-unit-price="0">Extension Cord (Free)</option>
+                                <option value="Microphone" data-unit-price="0">Microphone (Event Room only)</option>
+                                <option value="Speaker" data-unit-price="0">Speaker (Event Room only)</option>
+
+                            </select>
+                        </div>
+                        <div class="input-group-modern">
+                            <label class="form-label-modern" for="addon-quantity">Quantity</label>
+                            <input type="number" id="addon-quantity" name="predefined_addon_qty" class="modern-input" min="1" value="1" step="1">
+                            <small class="text-muted">Minimum quantity is 1. Empty value defaults to 1.</small>                        </div>
+                        <input type="hidden" name="extra_fee_total" id="extra-fee-total" value="0">
+                        <div class="input-group-modern">
+                            {{ form.extra_notes.label(class="form-label-modern", text="Special Instructions") }}
+                            {{ form.extra_notes(class="modern-textarea modern-input", placeholder="Enter specific requests here...") }}
+                        </div>
+                    </div>
+                </div>
+
+
+                <div class="payment-section">
+                    <h6 class="notes-title">Payment Method</h6>
+                    <p class="small text-muted">
+                        Select your payment method and payment type. For downpayment, a 50% advance is required.
+                    </p>
+                    <div class="payment-method-grid">
+                        <label class="payment-method-option" for="pm-gcash">
+                            <input type="radio" name="payment_method" id="pm-gcash" value="GCash">
+                            <span>GCash</span>
+                        </label>
+                        <label class="payment-method-option" for="pm-maya">
+                            <input type="radio" name="payment_method" id="pm-maya" value="Maya">
+                            <span>Maya</span>
+                        </label>
+                    </div>
+
+                    <div id="payment-type-section" class="payment-type-section d-none">
+                        <h6 class="notes-title payment-type-title">Payment Type</h6>
+                        <div class="payment-type-grid">
+                            <label class="payment-type-option" for="pt-downpayment">
+                                <input type="radio" name="payment_type" id="pt-downpayment" value="Downpayment" checked>
+                                <span>Downpayment (50%)</span>
+                            </label>
+                            <label class="payment-type-option" for="pt-fullpayment">
+                                <input type="radio" name="payment_type" id="pt-fullpayment" value="Full Payment">
+                                <span>Full Payment</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div id="payment-info-panel" class="payment-info-panel d-none">
+                        <div class="payment-info-row">
+                            <strong id="payment-method-label"></strong>
+                        </div>
+                        <div class="payment-info-row">
+                            <small id="payment-instructions" class="text-muted"></small>
+                        </div>
+                        <div class="payment-info-row">
+                            <button type="button" id="show-payment-modal" class="modal-open-btn">View Payment QR & Details</button>
+                        </div>
+                    </div>
+
+                    <div id="payment-amount-display" class="payment-amount-display d-none">
+                        <div class="amount-row">
+                            <strong>Grand Total:</strong> <span id="display-total-amount">₱0.00</span>
+                        </div>
+                        <div class="amount-row d-none" id="downpayment-row">
+                            <strong>Downpayment Amount (50%):</strong> <span id="display-downpayment-amount">₱0.00</span>
+                        </div>
+                        <div class="amount-row d-none" id="fullpayment-row">
+                            <strong>Full Payment Amount:</strong> <span id="display-fullpayment-amount">₱0.00</span>
+                        </div>
+                    </div>
+
+                    <div class="input-group-modern receipt-upload-group d-none" id="receipt-upload-section">
+                        <label class="form-label-modern" for="receipt-upload">Upload Receipt</label>
+                        <input type="file" name="receipt_image" id="receipt-upload" class="modern-input" accept="image/*,application/pdf">
+                        <small class="text-muted">Verify the amount matches the <strong id="receipt-amount-label">downpayment</strong> shown above.</small>
+                    </div>
+
+                    <div id="payment-modal" class="payment-modal-overlay d-none">
+                        <div class="payment-modal-content">
+                            <button type="button" class="modal-close" id="payment-modal-close">&times;</button>
+                            <h3 id="modal-payment-method" class="modal-title">Payment Details</h3>
+                            <p><strong>Account:</strong> <span id="modal-account-info"></span></p>
+                            <div class="modal-qr-row">
+                                <img id="modal-qr-image" src="" alt="QR Code" class="modal-qr-image d-none">
+                            </div>
+                            <p id="modal-instructions" class="modal-text"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Booking Summary Section -->
+                <div id="booking-summary-container" class="booking-summary-card d-none">
+                    <h6 class="summary-title">Booking Summary</h6>
+                    <div class="summary-details">
+                        <p>Selected Room: <span id="summary-room">-</span></p>
+                        <p>Duration: <span id="summary-hours">0</span> hour(s)</p>
+                        <p>Add-ons: <span id="summary-addons">None</span></p>
+                        <p>Total Cost: <span class="summary-price">₱<span id="summary-total">0.00</span></span></p>
+                        <p class="deposit-note d-none">Downpayment Due: <strong id="summary-deposit">₱0.00</strong></p>
+                    </div>
+                </div>
+
+                {% if current_user.is_authenticated and current_user.role != 'member' %}
+                   <button type="button" class="form-submit-btn" id="submit-booking" disabled="disabled">Reserve Space</button>
+                {% else %}
+                    <button type="button" class="form-submit-btn" id="submit-booking">Reserve Space</button>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <div class="bookings-section">
+        <div class="section-header-flex">
+            <h3 class="upcoming-title">Upcoming Bookings</h3>
+            <div class="table-filters">
+                <input type="date" id="filter-date" class="modern-input filter-input">
+                <select id="filter-status" class="modern-select filter-input">
+                    <option value="">All Status</option>
+                    <option value="Confirmed">Confirmed</option>
+                    <option value="Pending">Pending</option>
+                </select>
+                <button type="button" class="export-btn" id="export-csv">Export CSV</button>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table class="booking-table" id="bookings-table">
+                <thead>
+                    <tr>
+                        <th>Rooms</th>
+                        <th>Start Time</th>
+                        <th>End Time</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if bookings %}
+                        {% for booking in bookings %}
+                        <tr class="booking-row" data-status="{{ booking[2] }}" data-date="{{ booking[0] }}">
+                            <!-- Room Name -->
+                            <td>{{ booking[3] }}</td>
+                            
+                            <!-- Start Time -->
+                            <td>
+                                {% if booking[0] is string %}
+                                    {{ booking[0] }}
+                                {% else %}
+                                    {{ booking[0].strftime('%b %d, %Y %I:%M %p') }}
+                                {% endif %}
+                            </td>
+
+                            <!-- End Time (UPDATED WITH OPEN TIME CHECK) -->
+                            <td>
+                                {% if not booking[1] or booking[1] == '' or (booking|length > 4 and booking[4]) %}
+                                    <span class="badge-open-time" style="background: #e0f2fe; color: #0369a1; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; font-weight: 600;">
+                                        Open Time
+                                    </span>
+                                {% elif booking[1] is string %}
+                                    {{ booking[1] }}
+                                {% else %}
+                                    {{ booking[1].strftime('%b %d, %Y %I:%M %p') }}
+                                {% endif %}
+                            </td>
+
+                            <!-- Status -->
+                            <td>
+                                <span class="booking-status status-{{ booking[2].lower() }}">
+                                    {{ booking[2] }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr class="empty-row">
+                            <td colspan="4">No upcoming bookings found.</td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+    const badge = document.getElementById('member-reservation-notif-badge');
+
+    if (!badge || badge.classList.contains('d-none')) {
+        return;
+    }
+
+    fetch('/api/notifications/reservations/read', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+                ? {
+                    'X-CSRFToken':
+                        document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                }
+                : {})
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            badge.textContent = '0';
+            badge.classList.add('d-none');
+        }
+    })
+    .catch(error => {
+        console.error('Failed to mark reservation notifications as read:', error);
+    });
+});
+</script>
+{% endblock %}
+
+<script type="application/json" id="paymentInfoData">{{ payment_info | tojson | safe }}</script>
+<div id="currentUserRole" data-role="{{ current_user.role }}" hidden></div>
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/rooms.js') }}"></script>
+{% endblock %}
