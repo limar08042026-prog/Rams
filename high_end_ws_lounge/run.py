@@ -60,6 +60,9 @@ def create_app(config_class=Config):
 # Create application instance
 app = create_app()
 
+with app.app_context():
+    db.create_all()
+
 
 def ensure_default_rooms():
     with app.app_context():
